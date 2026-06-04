@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Forsbom — Idag</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Inter', sans-serif;
+    background: #f7f5f3;
+    color: #2d3748;
+    min-height: 100vh;
+  }
+  .header {
+    background: linear-gradient(135deg, #2d4a7a 0%, #4a7ab5 100%);
+    color: white;
+    padding: 32px 24px 24px;
+  }
+  .header h1 { font-size: 1.8rem; font-weight: 700; display: inline; }
+  .header .subtitle { font-size: 0.9rem; opacity: 0.7; display: inline; margin-left: 8px; }
+  .header .date { font-size: 1rem; opacity: 0.85; margin-top: 8px; }
+
+  .tabs {
+    display: flex;
+    background: white;
+    border-bottom: 1px solid #e2e8f0;
+    overflow-x: auto;
+  }
+  .tab {
+    flex: 1;
+    padding: 14px 10px;
+    text-align: center;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: #94a3b8;
+    cursor: pointer;
+    border-bottom: 3px solid transparent;
+    transition: all 0.2s ease;
+    font-family: 'Inter', sans-serif;
+    background: none;
+    border-top: none; border-left: none; border-right: none;
+    white-space: nowrap;
+  }
+  .tab.active {
+    color: #2d4a7a;
+    border-bottom-color: #2d4a7a;
+  }
+  .tab .badge {
+    display: inline-block;
+    background: #e2e8f0;
+    color: #64748b;
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 10px;
+    margin-left: 4px;
+    vertical-align: middle;
+  }
+  .tab.active .badge {
+    background: #2d4a7a;
+    color: white;
+  }
+
+  .tab-content { display: none; padding: 16px; }
+  .tab-content.active { display: block; }
+
+  .empty { text-align: center; padding: 60px 24px; color: #94a3b8; font-size: 1.1rem; }
+  .loading { text-align: center; padding: 60px 24px; color: #94a3b8; }
+
+  .log-entry {
+    background: white;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    line-height: 1.7;
+    font-size: 1rem;
+    color: #4a5568;
+  }
+  .log-time {
+    font-size: 0.8rem;
+    color: #94a3b8;
+    margin-bottom: 6px;
+  }
+  .log-badge {
+    display: inline-block;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #2d4a7a;
+    background: #e8f0fe;
+    padding: 2px 8px;
+    border-radius: 6px;
+    margin-bottom: 8px;
+  }
+  .log-source {
+    display: inline-block;
+    font-size: 0.65rem;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 6px;
+    margin-left: 8px;
+  }
+  .log-source.mail { color: #d97706; background: #fef3c7; }
+  .log-source.file { color: #059669; background: #d1fae5; }
+
+  .refresh {
+    display: block; margin: 20px auto; padding: 14px 28px;
+    background: #2d4a7a; color: white; border: none;
+    border-radius: 10px; font-size: 1rem; cursor: pointer;
+    font-family: 'Inter', sans-serif;
+  }
+</style>
+</head>
+<body>
+  <div class="header">
+    <h1>Forsbom</h1>
+    <div class="subtitle">Psykologtjänster AB</div>
+    <div class="date" id="date-display"></div>
+  </div>
+
+  <div class="tabs" id="tab-bar"></div>
+
+  <div class="tab-content active" id="tab-files">
+    <div id="file-entries"></div>
+  </div>
+  <div class="tab-content" id="tab-mail">
+    <div id="mail-entries"></div>
+  </div>
+
+  <button class="refresh" onclick="loadAll()">Uppdatera</button>
+
+<script>
+// Nyckelfri: hämtar sorteringsloggen från Edge Functionen 'forsbom-today' (nyckeln stannar server-side).
+const FN = "https://adtlshqgbqwcjzticimk.supabase.co/functions/v1/forsbom-today";
+
+const weekdays = ["söndag","måndag","tisdag","onsdag","torsdag","fredag","lördag"];
+const months = ["januari","februari","mars","april","maj","juni","juli","augusti","september","oktober","november","december"];
+
+let activeTab = 'files';
+let counts = { files: 0, mail: 0 };
+
+function formatDate() {
+  const d = new Date();
+  return weekdays[d.getDay()] + " " + d.getDate() + " " + months[d.getMonth()];
+}
+function esc(t) { const e = document.createElement("div"); e.textContent = (t == null ? "" : String(t)); return e.innerHTML; }
+
+function switchTab(tab) {
+  activeTab = tab;
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  renderTabs();
+}
+
+function renderTabs() {
+  const tabs = [
+    { id: 'files', label: 'Sorterade filer', count: counts.files },
+    { id: 'mail', label: 'Sorterad mail', count: counts.mail },
+  ];
+  document.getElementById('tab-bar').innerHTML = tabs.map(t =>
+    '<button class="tab' + (activeTab === t.id ? ' active' : '') + '" onclick="switchTab(\'' + t.id + '\')">' +
+    t.label + (t.count > 0 ? ' <span class="badge">' + t.count + '</span>' : '') +
+    '</button>'
+  ).join('');
+}
+
+async function loadAll() {
+  document.getElementById("date-display").textContent = formatDate();
+  document.getElementById("file-entries").innerHTML = '<div class="loading">Laddar...</div>';
+  document.getElementById("mail-entries").innerHTML = '<div class="loading">Laddar...</div>';
+  let data;
+  try {
+    data = await fetch(FN).then(r => r.json());
+  } catch (e) {
+    document.getElementById("file-entries").innerHTML = '<div class="empty">Kunde inte ladda. Tryck Uppdatera.</div>';
+    return;
+  }
+  renderEntries('files', 'file-entries', data.files || [], 'file', 'fil');
+  renderEntries('mail', 'mail-entries', data.mail || [], 'mail', 'mail');
+  renderTabs();
+}
+
+function renderEntries(countKey, elementId, items, sourceClass, sourceLabel) {
+  counts[countKey] = items.length;
+  if (!items.length) {
+    document.getElementById(elementId).innerHTML = '<div class="empty">Inget sorterat senaste 7 dagarna.</div>';
+    return;
+  }
+  const today = new Date().toISOString().split("T")[0];
+  const groups = {};
+  items.forEach(item => {
+    const day = item.created_at.split("T")[0];
+    if (!groups[day]) groups[day] = [];
+    groups[day].push(item);
+  });
+  document.getElementById(elementId).innerHTML = Object.keys(groups).sort().reverse().map(day => {
+    const d = new Date(day + "T12:00:00");
+    const isToday = day === today;
+    const label = isToday ? "Idag" : weekdays[d.getDay()] + " " + d.getDate() + "/" + (d.getMonth()+1);
+    const entries = groups[day];
+    return '<details' + (isToday ? ' open' : '') + '>' +
+      '<summary style="cursor:pointer;font-weight:600;font-size:1rem;color:#2d4a7a;padding:12px 0 6px;list-style:none;display:flex;align-items:center;gap:8px">' +
+      '<span style="font-size:0.8rem;transition:transform 0.2s">&#9654;</span> ' +
+      label + ' <span style="font-weight:400;font-size:0.85rem;color:#94a3b8">(' + entries.length + ')</span>' +
+      '</summary>' +
+      entries.map(item => {
+        const time = new Date(item.created_at).toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" });
+        const cat = item.category || "";
+        return '<div class="log-entry">' +
+          '<div class="log-time">' + esc(time) + '<span class="log-source ' + sourceClass + '">' + esc(sourceLabel) + '</span></div>' +
+          (cat ? '<span class="log-badge">' + esc(cat) + '</span>' : '') +
+          '<div>' + esc(item.content) + '</div>' +
+          '</div>';
+      }).join("") +
+      '</details>';
+  }).join("");
+}
+
+loadAll();
+</script>
+</body>
+</html>
