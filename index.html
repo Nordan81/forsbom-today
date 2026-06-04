@@ -187,7 +187,7 @@ async function loadAll() {
 function renderEntries(countKey, elementId, items, sourceClass, sourceLabel) {
   counts[countKey] = items.length;
   if (!items.length) {
-    document.getElementById(elementId).innerHTML = '<div class="empty">Inget sorterat senaste 7 dagarna.</div>';
+    document.getElementById(elementId).innerHTML = '<div class="empty">Inget sorterat senaste 30 dagarna.</div>';
     return;
   }
   const today = new Date().toISOString().split("T")[0];
